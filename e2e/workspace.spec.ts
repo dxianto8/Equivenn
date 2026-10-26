@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { onboard } from './helpers'
+
+test.beforeEach(async ({ page }) => { await onboard(page) })
 
 test('review, submit, approve, recalculate, publish, persist, and export a cycle', async ({ page }) => {
   const errors: string[] = []

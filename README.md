@@ -1,6 +1,6 @@
 # Equivenn
 
-A transparent organizational budget allocator built with React, TypeScript, and Vite. A working local workspace includes eight sample student organizations and a Fall 2026 funding cycle.
+A transparent organizational budget allocator built with React, TypeScript, Vite, and a Node.js account service. First-time visitors create an account, connect a school, and set up a workspace before reaching the dashboard.
 
 ## Develop
 
@@ -12,18 +12,22 @@ npm ci
 npm run dev -- --port 3000
 ```
 
-The server binds to all interfaces. For a production build, run `npm run build`; `npm run preview -- --port 3000` serves that build for validation.
+The server binds to all interfaces. Vite mounts the account API on the same origin automatically, so one command starts the complete development workflow. For a production build, run `npm run build`, then `npm start` to serve both the app and API. `npm run preview -- --port 4173` also includes the API for local build validation.
 
 ```sh
-npm test          # Allocation invariants and edge cases
+npm test          # Allocation invariants and account API integration tests
 npm run build    # Strict TypeScript check and production bundle
-npm run test:e2e # Desktop lifecycle and mobile interaction tests
+npm run test:e2e # Account onboarding, login, isolation, desktop lifecycle, mobile
 ```
 
-Browser tests use the system Chromium when available. Otherwise run `npx playwright install chromium`, or set `CHROMIUM_PATH` to an installed Chromium executable. No credentials or external services are needed. Dependencies and font files are fetched from the npm registry during installation; runtime fonts are bundled locally.
+Browser tests use the system Chromium when available. Otherwise run `npx playwright install chromium`, or set `CHROMIUM_PATH` to an installed Chromium executable. They start their own Vite server on port 3100 with a separate test database and dependency cache; keep that port free. No external credentials or services are needed. Dependencies and font files are fetched from the npm registry during installation; runtime fonts are bundled locally.
 
 ## What works
 
+- Required account creation, returning-user sign-in, session restoration, and sign-out.
+- Three-step onboarding: your account, your school, and your workspace. Incomplete accounts resume school setup on reload and cannot reach the dashboard.
+- School-domain/email matching, self-reported role, custom school/workspace names, starting budget, and an optional sample dataset. School affiliation is explicitly unverified.
+- Personalized dashboard identity and separate browser funding data for each signed-in account.
 - Budget overview, requested-versus-allocated charts, and category analytics.
 - Funding request submission with standardized membership, impact, utilization, and efficiency inputs.
 - Eligibility review: new requests remain excluded until approved.
@@ -32,7 +36,16 @@ Browser tests use the system Chromium when available. Otherwise run `npx playwri
 - Search, category filters, request status tabs, and sortable table columns.
 - A published cycle record with a timestamp, captured metrics, awards, and policy.
 - CSV export including the scoring weights and reserve policy. Text cells that could be interpreted as spreadsheet formulas are escaped.
-- Browser persistence, responsive navigation, keyboard-accessible dialogs, and reduced-motion support.
+- JavaScript animations with Motion: onboarding transitions, floating artwork, staggered dashboard reveals, animated chart bars, and budget counters. OS reduced-motion preferences are respected.
+- Browser persistence, responsive navigation, and keyboard-accessible dialogs.
+
+## Accounts and server storage
+
+Node.js 24 provides the built-in SQLite driver. The service automatically creates `.data/equivenn.sqlite` with private filesystem permissions. Accounts, salted scrypt password hashes, school connections, and hashed session tokens are stored there. Raw passwords and raw session tokens are not stored in the database. Sessions expire after seven days and use HttpOnly, SameSite=Lax cookies. Sign-out revokes the server session. Account attempts are rate limited, mutations reject cross-origin requests, and account responses disable caching.
+
+The database directory is ignored by Git. Keep it on persistent, private storage and back it up when deploying; do not commit it or publish it as a static asset. `AUTH_DB_PATH` selects a different writable database file. `PORT` selects the production listener (default 3000). Use `NODE_ENV=production` or `COOKIE_SECURE=true` behind HTTPS to require Secure cookies. Local HTTP development uses non-Secure cookies. A static-only host cannot run the account API; use `npm start` on a Node.js host or a compatible backend deployment.
+
+School connection links self-reported institution details to an account. Matching an email domain does not verify ownership or affiliation. School SSO, email verification, password recovery, and joining a shared institution-managed workspace are not connected. Do not present the role or school name as verified identity or administrative authorization.
 
 ## Allocation model
 
@@ -51,9 +64,9 @@ Consistent calculations do not eliminate policy or input bias. Councils must agr
 
 ## Storage and scope
 
-This is a local-first application: requests, policy, and the published cycle record are persisted in this browser's local storage under the original versioned `equifund.*.v1` keys, retained to preserve workspace data across the Equivenn rebrand. Initial data is illustrative. Use a separate browser profile for a fresh demo; export important records before clearing site data.
+Accounts and school details live on the server. Funding requests, policy changes, and published cycle records are still local to the signed-in account in this browser, under `equivenn.<account-id>.*.v1` keys. Signing into another account does not expose the first account's workspace through the UI. Older unscoped `equifund.*.v1` browser data is retained untouched and is not automatically attached to an account. Initial organizations are illustrative and optional during setup. Export important records before clearing site data.
 
-Publishing creates a record in this workspace; it does not publish a public website. Cross-device collaboration, authentication, independent data verification, audit history, and a remotely accessible public ledger require a backend and are not connected. The application is a decision-support tool, not a financial payment system.
+Publishing creates a record in this browser workspace; it does not publish a public website. Funding data synchronization, cross-device collaboration, independent data verification, audit history, and a remotely accessible public ledger are not connected. The application is a decision-support tool, not a financial payment system.
 
 ## Cloud startup
 
