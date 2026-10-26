@@ -22,6 +22,19 @@ npm run test:e2e # Account onboarding, login, isolation, desktop lifecycle, mobi
 
 Browser tests use the system Chromium when available. Otherwise run `npx playwright install chromium`, or set `CHROMIUM_PATH` to an installed Chromium executable. They start their own Vite server on port 3100 with a separate test database and dependency cache; keep that port free. No external credentials or services are needed. Dependencies and font files are fetched from the npm registry during installation; runtime fonts are bundled locally.
 
+## Deploy on Vercel
+
+Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build, and `api/[...path].mjs` handles `/api/session`, `/api/auth/*`, `/api/school`, and `/api/health` as a Node.js 24 function. Deploy the repository, rather than uploading only `dist`.
+
+1. In the Equivenn Vercel project, connect a Neon Postgres database through Vercel's storage/marketplace integration. Enable the **Production** environment. The integration supplies a server-only `DATABASE_URL` (the legacy `POSTGRES_URL` name is also supported).
+2. Redeploy after connecting the database or changing environment variables. Existing deployments do not pick up newly added variables.
+3. Open `/api/health` on the deployed domain. HTTP 200 with `{"status":"ok"}` confirms database readiness. `/api/session` should return JSON with `user` and `school` fields. HTML at an API URL means the backend function was not included in that deployment.
+4. Create an account, connect the school, and finish workspace setup. Tables and indexes are initialized automatically. Database-backed sessions and rate limits survive function restarts and are shared across instances.
+
+Keep database URLs in Vercel environment settings. Never commit a connection string, paste one into chat, or prefix it with `VITE_` (which exposes values in the frontend). Vercel's function uses Neon's HTTPS driver with normal TLS verification. Local SQLite is used only for local development; it is never used as an ephemeral fallback on Vercel. With no connected database, the public sign-up screen can load, but account creation returns `DATABASE_NOT_CONFIGURED` until deployment setup is complete.
+
+PostgreSQL queries and the actual Vercel request handler are covered by integration tests using PGlite's PostgreSQL engine. A live Neon connection and Vercel deployment still need the project's production database binding and deployment checks.
+
 ## What works
 
 - Required account creation, returning-user sign-in, session restoration, and sign-out.
@@ -41,9 +54,9 @@ Browser tests use the system Chromium when available. Otherwise run `npx playwri
 
 ## Accounts and server storage
 
-Node.js 24 provides the built-in SQLite driver. The service automatically creates `.data/equivenn.sqlite` with private filesystem permissions. Accounts, salted scrypt password hashes, school connections, and hashed session tokens are stored there. Raw passwords and raw session tokens are not stored in the database. Sessions expire after seven days and use HttpOnly, SameSite=Lax cookies. Sign-out revokes the server session. Account attempts are rate limited, mutations reject cross-origin requests, and account responses disable caching.
+Locally, Node.js 24's SQLite driver creates `.data/equivenn.sqlite` with private filesystem permissions. On Vercel, the same service uses a connected Neon Postgres database instead. Accounts, salted scrypt password hashes, school connections, hashed session tokens, and rate-limit counters are stored in the selected database. Raw passwords and raw session tokens are not stored. Sessions expire after seven days and use HttpOnly, SameSite=Lax cookies (Secure on Vercel). Sign-out revokes the server session. Mutations reject cross-origin requests, and account responses disable caching.
 
-The database directory is ignored by Git. Keep it on persistent, private storage and back it up when deploying; do not commit it or publish it as a static asset. `AUTH_DB_PATH` selects a different writable database file. `PORT` selects the production listener (default 3000). Use `NODE_ENV=production` or `COOKIE_SECURE=true` behind HTTPS to require Secure cookies. Local HTTP development uses non-Secure cookies. A static-only host cannot run the account API; use `npm start` on a Node.js host or a compatible backend deployment.
+The local database directory is ignored by Git. Keep it on persistent, private storage and back it up when deploying on a regular Node.js host; do not commit it or publish it as a static asset. `AUTH_DB_PATH` selects a different private writable database file. `PORT` selects the standalone production listener (default 3000). Use `NODE_ENV=production` or `COOKIE_SECURE=true` behind HTTPS to require Secure cookies. Local HTTP development uses non-Secure cookies. A static-only host cannot run the account API; use `npm start` on a Node.js host or the Vercel function with Neon described above.
 
 School connection links self-reported institution details to an account. Matching an email domain does not verify ownership or affiliation. School SSO, email verification, password recovery, and joining a shared institution-managed workspace are not connected. Do not present the role or school name as verified identity or administrative authorization.
 
