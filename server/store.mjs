@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { neon } from '@neondatabase/serverless'
 import { mkdirSync, chmodSync } from 'node:fs'
 import { dirname, resolve, sep } from 'node:path'
+import { databaseError, classifyDatabaseFailure } from './database-config.mjs'
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -37,7 +38,15 @@ export function createSQLiteStore(databasePath) {
 // The injectable driver lets the same queries run against a real PostgreSQL
 // engine in integration tests. Production uses Neon's verified HTTPS driver.
 export function createPostgresStore(connectionString, driver) {
-  const sql = driver ? null : neon(connectionString)
+  if (!driver) {
+    try {
+      const parsed = new URL(connectionString)
+      if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.username || parsed.pathname.length < 2) throw new Error()
+    } catch { throw databaseError('DATABASE_URL_INVALID') }
+  }
+  let sql
+  try { sql = driver ? null : neon(connectionString) }
+  catch { throw databaseError('DATABASE_URL_INVALID') }
   const execute = driver ? driver.query : (query, parameters) => sql.query(query, parameters)
   let initialization
   const ready = () => {
@@ -49,14 +58,15 @@ export function createPostgresStore(connectionString, driver) {
           sql.query('SELECT pg_advisory_xact_lock(874222516)'),
           ...schema.map(query => sql.query(query)),
         ])
-      })().catch(error => { initialization = undefined; throw error })
+      })().catch(error => { initialization = undefined; throw classifyDatabaseFailure(error) })
     }
     return initialization
   }
   const query = async (statement, parameters) => {
     await ready()
     let position = 0
-    return execute(statement.replace(/\?/g, () => `$${++position}`), parameters)
+    try { return await execute(statement.replace(/\?/g, () => `$${++position}`), parameters) }
+    catch (error) { throw classifyDatabaseFailure(error) }
   }
   return {
     ready,
@@ -69,11 +79,7 @@ export function createPostgresStore(connectionString, driver) {
 }
 
 export function missingDatabaseStore() {
-  const unavailable = () => {
-    const error = new Error('Account setup has not been completed for this site. Please contact the workspace administrator.')
-    error.code = 'DATABASE_NOT_CONFIGURED'
-    throw error
-  }
+  const unavailable = () => { throw databaseError('DATABASE_NOT_CONFIGURED') }
   return { ready: async () => unavailable(), prepare: () => ({ get: unavailable, run: unavailable }), close() {} }
 }
 

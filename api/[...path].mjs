@@ -1,16 +1,20 @@
 import { createAuthApp } from '../server/auth.mjs'
+import { databaseConfiguration, databaseDiagnostics, publicDatabaseFailure } from '../server/database-config.mjs'
 
-export function createVercelHandler(options = {}) {
+export function createVercelHandler(options = {}, reportError = details => console.error('[Equivenn] Account service initialization failed', details)) {
   let service
   return (req, res) => {
     try {
       service ||= createAuthApp({ hosted: true, secureCookies: true, ...options })
       return service.app(req, res)
-    } catch {
+    } catch (error) {
       res.statusCode = 503
       res.setHeader('Content-Type', 'application/json')
       res.setHeader('Cache-Control', 'no-store')
-      res.end(JSON.stringify({ error: 'Account setup has not been completed for this site. Please contact the workspace administrator.', code: 'DATABASE_NOT_CONFIGURED' }))
+      const failure = publicDatabaseFailure(error) || { error: 'The account service could not start. Check the Vercel function logs for this deployment.', code: 'API_INITIALIZATION_FAILED' }
+      if (failure.code === 'API_INITIALIZATION_FAILED') reportError({ code: failure.code, type: ['Error', 'TypeError', 'ReferenceError', 'RangeError', 'SyntaxError'].includes(error?.name) ? error.name : 'Error' })
+      const health = req.url?.split('?')[0] === '/api/health'
+      res.end(JSON.stringify({ ...failure, ...(health ? databaseDiagnostics(databaseConfiguration(process.env, options.databaseUrl), true) : {}) }))
     }
   }
 }

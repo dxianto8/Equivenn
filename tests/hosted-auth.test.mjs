@@ -26,9 +26,43 @@ test('Vercel function serves the anonymous session and reports a missing databas
   const health = await request('/health')
   assert.equal(health.response.status, 503)
   assert.equal(health.body.code, 'DATABASE_NOT_CONFIGURED')
+  assert.equal(health.body.diagnosticVersion, 2)
+  assert.equal(health.body.database.configured, false)
   const signup = await request('/auth/register', { name: 'Taylor Rivers', email: 'taylor@northbridge.edu', password: 'A long test passphrase 42!' })
   assert.equal(signup.response.status, 503)
   assert.equal(signup.body.code, 'DATABASE_NOT_CONFIGURED')
+})
+
+test('malformed connection URLs and unrelated startup failures are not mislabeled as missing bindings', async t => {
+  const invalid = await serve(t, createVercelHandler({ databaseUrl: 'INVALID-PRIVATE-CONNECTION' }))
+  const response = await invalid('/health')
+  assert.equal(response.response.status, 503)
+  assert.equal(response.body.code, 'DATABASE_URL_INVALID')
+  assert.equal(response.body.database.configured, true)
+  assert.doesNotMatch(JSON.stringify(response.body), /INVALID-PRIVATE-CONNECTION/)
+  const logs = []
+  const unexpected = await serve(t, createVercelHandler({ get store() { throw new Error('PRIVATE-INITIALIZATION-DETAILS') } }, details => logs.push(details)))
+  const failed = await unexpected('/health')
+  assert.equal(failed.body.code, 'API_INITIALIZATION_FAILED')
+  assert.doesNotMatch(JSON.stringify(failed.body), /PRIVATE-INITIALIZATION-DETAILS/)
+  assert.deepEqual(logs, [{ code: 'API_INITIALIZATION_FAILED', type: 'Error' }])
+})
+
+test('a valid PostgreSQL URL initializes the actual Neon client without touching local storage', async t => {
+  const request = await serve(t, createVercelHandler({ databaseUrl: 'postgresql://fixture-user:fixture-password@fixture.example.test/fixture' }))
+  const response = await request('/session')
+  assert.equal(response.response.status, 200)
+  assert.deepEqual(response.body, { user: null, school: null })
+})
+
+test('PostgreSQL authentication failures return a precise safe health response', async t => {
+  const store = createPostgresStore('', { initialize: async () => { throw Object.assign(new Error('PRIVATE-CONNECTION-DETAILS'), { code: '28P01' }) }, query() {} })
+  const request = await serve(t, createVercelHandler({ store }))
+  const response = await request('/health')
+  assert.equal(response.response.status, 503)
+  assert.equal(response.body.code, 'DATABASE_AUTH_FAILED')
+  assert.equal(response.body.diagnosticVersion, 2)
+  assert.doesNotMatch(JSON.stringify(response.body), /PRIVATE-CONNECTION-DETAILS/)
 })
 
 test('hosted signup, school setup, login, durable sessions and rate limits execute on a real PostgreSQL engine', async t => {

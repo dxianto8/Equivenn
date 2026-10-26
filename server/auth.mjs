@@ -4,6 +4,7 @@ import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, cre
 import { promisify } from 'node:util'
 import { resolve } from 'node:path'
 import { createSQLiteStore, createPostgresStore, missingDatabaseStore, DatabaseRateLimitStore } from './store.mjs'
+import { databaseConfiguration, databaseDiagnostics, databaseError, publicDatabaseFailure } from './database-config.mjs'
 
 const scrypt = promisify(scryptCallback)
 const cookieName = 'equivenn_session'
@@ -13,8 +14,10 @@ const roles = ['Treasurer', 'Council member', 'Organization lead', 'Administrato
 const digest = value => createHash('sha256').update(value).digest('hex')
 const clean = value => typeof value === 'string' ? value.trim() : ''
 
-export function createAuthApp({ databasePath = process.env.AUTH_DB_PATH || resolve('.data/equivenn.sqlite'), databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL, hosted = process.env.VERCEL === '1', secureCookies = hosted || process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production', store } = {}) {
-  const db = store || (databaseUrl ? createPostgresStore(databaseUrl) : hosted ? missingDatabaseStore() : createSQLiteStore(databasePath))
+export function createAuthApp({ databasePath = process.env.AUTH_DB_PATH || resolve('.data/equivenn.sqlite'), databaseUrl, hosted = process.env.VERCEL === '1', secureCookies = hosted || process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production', store } = {}) {
+  const configuration = databaseConfiguration(process.env, databaseUrl)
+  if (!store && configuration.issue) throw databaseError(configuration.issue)
+  const db = store || (configuration.url ? createPostgresStore(configuration.url) : hosted ? missingDatabaseStore() : createSQLiteStore(databasePath))
   const app = express()
   app.disable('x-powered-by')
   if (hosted) app.set('trust proxy', 1)
@@ -107,9 +110,10 @@ export function createAuthApp({ databasePath = process.env.AUTH_DB_PATH || resol
     res.status(201).json(await result(req.account))
   })
   app.use('/api', (_req, res) => res.status(404).json({ error: 'This endpoint does not exist.' }))
-  app.use((error, _req, res, next) => {
+  app.use((error, req, res, next) => {
     if (res.headersSent) return next(error)
-    if (error.code === 'DATABASE_NOT_CONFIGURED') return res.status(503).json({ error: error.message, code: error.code })
+    const databaseFailure = publicDatabaseFailure(error)
+    if (databaseFailure) return res.status(503).json({ ...databaseFailure, ...(req.path === '/api/health' ? databaseDiagnostics(configuration, hosted) : {}) })
     const invalidBody = error.type === 'entity.parse.failed' || error.type === 'entity.too.large'
     res.status(invalidBody ? (error.status || 400) : 500).json({ error: invalidBody ? 'Please check your request and try again.' : 'Something went wrong. Please try again.' })
   })

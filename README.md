@@ -26,7 +26,7 @@ Browser tests use the system Chromium when available. Otherwise run `npx playwri
 
 Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build, and `api/[...path].mjs` handles `/api/session`, `/api/auth/*`, `/api/school`, and `/api/health` as a Node.js 24 function. Deploy the repository, rather than uploading only `dist`.
 
-1. In the Equivenn Vercel project, connect a Neon Postgres database through Vercel's storage/marketplace integration. Enable the **Production** environment. The integration supplies a server-only `DATABASE_URL` (the legacy `POSTGRES_URL` name is also supported).
+1. In the Equivenn Vercel project, connect a Neon Postgres database through Vercel's storage/marketplace integration. Enable the **Production** environment. The integration supplies a server-only connection variable. The app supports `DATABASE_URL`, `POSTGRES_URL`, `NEON_DATABASE_URL`, `DATABASE_POSTGRES_URL`, and an unambiguous custom-prefixed database URL. A pooled binding is preferred over its unpooled counterpart. If different databases use competing custom prefixes, set `DATABASE_URL` explicitly.
 2. Redeploy after connecting the database or changing environment variables. Existing deployments do not pick up newly added variables.
 3. Open `/api/health` on the deployed domain. HTTP 200 with `{"status":"ok"}` confirms database readiness. `/api/session` should return JSON with `user` and `school` fields. HTML at an API URL means the backend function was not included in that deployment.
 4. Create an account, connect the school, and finish workspace setup. Tables and indexes are initialized automatically. Database-backed sessions and rate limits survive function restarts and are shared across instances.
@@ -34,6 +34,8 @@ Vercel needs both the frontend and the account API. `vercel.json` configures the
 Keep database URLs in Vercel environment settings. Never commit a connection string, paste one into chat, or prefix it with `VITE_` (which exposes values in the frontend). Vercel's function uses Neon's HTTPS driver with normal TLS verification. Local SQLite is used only for local development; it is never used as an ephemeral fallback on Vercel. With no connected database, the public sign-up screen can load, but account creation returns `DATABASE_NOT_CONFIGURED` until deployment setup is complete.
 
 PostgreSQL queries and the actual Vercel request handler are covered by integration tests using PGlite's PostgreSQL engine. A live Neon connection and Vercel deployment still need the project's production database binding and deployment checks.
+
+Failed health checks include `diagnosticVersion: 2`, the detected variable name and presence of database bindings, and the deployment commit/environment. These fields contain no connection values, hosts, usernames, or passwords. `DATABASE_NOT_CONFIGURED` means no usable binding is present; `DATABASE_URL_INVALID` means its value is malformed; `DATABASE_AUTH_FAILED` means credentials were rejected; `DATABASE_PERMISSION_DENIED` means account table creation is not permitted. `API_INITIALIZATION_FAILED` identifies another startup problem instead of falsely claiming a missing database. When diagnosing a deployment, share the health response or variable names; keep connection values private. An old response without the diagnostic version may indicate an older deployment is still active.
 
 ## What works
 
