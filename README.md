@@ -24,12 +24,12 @@ Browser tests use the system Chromium when available. Otherwise run `npx playwri
 
 ## Deploy on Vercel
 
-Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build. Explicit Node.js 24 endpoint files expose `/api/session`, `/api/health`, `/api/school`, `/api/auth/register`, `/api/auth/login`, and `/api/auth/logout`, sharing the account service in `server/vercel.mjs`. Generic Vercel function routing treats a bracketed filename as one path segment; a file named `[...path].mjs` does not expose nested auth URLs. Deploy the repository, rather than uploading only `dist`.
+Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build. Explicit Node.js 24 endpoint files expose `/api/session`, `/api/health`, `/api/school`, `/api/auth/register`, `/api/auth/login`, and `/api/auth/logout`, sharing the account service in `server/vercel.mjs`. The `/api/requests` and `/api/request-form` endpoints serve the shared inbox and public submissions. A rewrite serves the React page at `/request`. Generic Vercel function routing treats a bracketed filename as one path segment; a file named `[...path].mjs` does not expose nested auth URLs. Deploy the repository, rather than uploading only `dist`.
 
 1. In the Equivenn Vercel project, connect a Neon Postgres database through Vercel's storage/marketplace integration. Enable the **Production** environment. The integration supplies a server-only connection variable. The app supports `DATABASE_URL`, `POSTGRES_URL`, `NEON_DATABASE_URL`, `DATABASE_POSTGRES_URL`, and an unambiguous custom-prefixed database URL. A pooled binding is preferred over its unpooled counterpart. If different databases use competing custom prefixes, set `DATABASE_URL` explicitly.
 2. Redeploy after connecting the database or changing environment variables. Existing deployments do not pick up newly added variables.
 3. Open `/api/health` on the deployed domain. HTTP 200 with `{"status":"ok"}` confirms database readiness. `/api/session` should return JSON with `user` and `school` fields. HTML at an API URL means the backend function was not included in that deployment.
-4. Create an account, connect the school, and finish workspace setup. Tables and indexes are initialized automatically. Database-backed sessions and rate limits survive function restarts and are shared across instances.
+4. Create an account, connect the school, and finish workspace setup. The inbox starts empty. Use **Share request form** to copy your public application URL, then submit a request from a separate browser. It should appear in the admin inbox within five seconds. Tables and indexes are initialized automatically. Database-backed sessions, requests, and rate limits survive function restarts and are shared across instances.
 
 Keep database URLs in Vercel environment settings. Never commit a connection string, paste one into chat, or prefix it with `VITE_` (which exposes values in the frontend). Vercel's function uses Neon's HTTPS driver with normal TLS verification. Local SQLite is used only for local development; it is never used as an ephemeral fallback on Vercel. With no connected database, the public sign-up screen can load, but account creation returns `DATABASE_NOT_CONFIGURED` until deployment setup is complete.
 
@@ -41,10 +41,12 @@ Failed health checks include `diagnosticVersion: 2`, the detected variable name 
 
 - Required account creation, returning-user sign-in, session restoration, and sign-out.
 - Three-step onboarding: your account, your school, and your workspace. Incomplete accounts resume school setup on reload and cannot reach the dashboard.
-- School-domain/email matching, self-reported role, custom school/workspace names, starting budget, and an optional sample dataset. School affiliation is explicitly unverified.
-- Personalized dashboard identity and separate browser funding data for each signed-in account.
+- School-domain/email matching, self-reported role, custom school/workspace names, and starting budget. Every workspace starts with an empty inbox. School affiliation is explicitly unverified.
+- Personalized dashboard identity and a server-backed request inbox scoped to each signed-in workspace owner.
 - Budget overview, requested-versus-allocated charts, and category analytics.
-- Funding request submission with standardized membership, impact, utilization, and efficiency inputs.
+- Shareable public funding request page at `/request?workspace=<token>`, with contact details and standardized membership, impact, utilization, and efficiency inputs. Applicants do not need an account.
+- Automatic admin inbox updates every five seconds and on window focus, with visible connection errors and retry controls.
+- Server-side validation, duplicate-safe submission references, submission rate limits, and private admin review.
 - Eligibility review: new requests remain excluded until approved.
 - Adjustable funding pool, reserve, and four published scoring weights, with a live preview.
 - Deterministic allocation and a per-organization explanation of every score and award.
@@ -56,7 +58,7 @@ Failed health checks include `diagnosticVersion: 2`, the detected variable name 
 
 ## Accounts and server storage
 
-Locally, Node.js 24's SQLite driver creates `.data/equivenn.sqlite` with private filesystem permissions. On Vercel, the same service uses a connected Neon Postgres database instead. Accounts, salted scrypt password hashes, school connections, hashed session tokens, and rate-limit counters are stored in the selected database. Raw passwords and raw session tokens are not stored. Sessions expire after seven days and use HttpOnly, SameSite=Lax cookies (Secure on Vercel). Sign-out revokes the server session. Mutations reject cross-origin requests, and account responses disable caching.
+Locally, Node.js 24's SQLite driver creates `.data/equivenn.sqlite` with private filesystem permissions. On Vercel, the same service uses a connected Neon Postgres database instead. Accounts, salted scrypt password hashes, school connections, funding requests, public request links, hashed session tokens, and rate-limit counters are stored in the selected database. Raw passwords and raw session tokens are not stored. Sessions expire after seven days and use HttpOnly, SameSite=Lax cookies (Secure on Vercel). Sign-out revokes the server session. Mutations reject cross-origin requests, and account responses disable caching.
 
 The local database directory is ignored by Git. Keep it on persistent, private storage and back it up when deploying on a regular Node.js host; do not commit it or publish it as a static asset. `AUTH_DB_PATH` selects a different private writable database file. `PORT` selects the standalone production listener (default 3000). Use `NODE_ENV=production` or `COOKIE_SECURE=true` behind HTTPS to require Secure cookies. Local HTTP development uses non-Secure cookies. A static-only host cannot run the account API; use `npm start` on a Node.js host or the Vercel function with Neon described above.
 
@@ -79,9 +81,11 @@ Consistent calculations do not eliminate policy or input bias. Councils must agr
 
 ## Storage and scope
 
-Accounts and school details live on the server. Funding requests, policy changes, and published cycle records are still local to the signed-in account in this browser, under `equivenn.<account-id>.*.v1` keys. Signing into another account does not expose the first account's workspace through the UI. Older unscoped `equifund.*.v1` browser data is retained untouched and is not automatically attached to an account. Initial organizations are illustrative and optional during setup. Export important records before clearing site data.
+Accounts, school details, request links, requests, and approval decisions live on the server. The dashboard polls its authenticated inbox every five seconds and refreshes when focused. Each owner gets a stable, unguessable public request link. Anyone with that link can submit; only the signed-in workspace owner can list submissions, read contact details, or approve requests. Self-reported school roles do not grant access to other accounts. Public endpoints expose the destination school/workspace and a submission receipt, never the request list or contact data. Requests stay in review until approved. Successful retries with the same submission UUID do not create duplicates.
 
-Publishing creates a record in this browser workspace; it does not publish a public website. Funding data synchronization, cross-device collaboration, independent data verification, audit history, and a remotely accessible public ledger are not connected. The application is a decision-support tool, not a financial payment system.
+Workspaces start without sample organizations. Old browser organization data is retained untouched but is no longer read or automatically uploaded into the new inbox. Requests entered through the admin form now use the same durable server storage as public submissions. Signing into the same owner account on another device retrieves the requests and their approval status.
+
+Model settings remain local under `equivenn.<account-id>.model.v1`; published cycle records use `equivenn.<account-id>.publication.v2`. Publishing creates a record in that browser, not a publicly hosted ledger. New submissions or approvals invalidate an existing snapshot when its inputs change. Export important records before clearing site data. Shared admin membership, synchronized model settings, independent data verification, audit history, and a remotely accessible public ledger are not connected. The application is a decision-support tool, not a financial payment system.
 
 ## Cloud startup
 

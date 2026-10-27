@@ -20,6 +20,19 @@ const schema = [
     workspace_name TEXT NOT NULL, budget NUMERIC(14, 2) NOT NULL, sample_data INTEGER NOT NULL
   )`,
   'CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL, reset_at BIGINT NOT NULL)',
+  `CREATE TABLE IF NOT EXISTS request_portals (
+    owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE
+  )`,
+  `CREATE TABLE IF NOT EXISTS funding_requests (
+    id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES request_portals(owner_id) ON DELETE CASCADE,
+    name TEXT NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL,
+    requested NUMERIC(14, 2) NOT NULL CHECK (requested > 0), members INTEGER NOT NULL CHECK (members > 0),
+    impact NUMERIC(5, 2) NOT NULL, utilization NUMERIC(5, 2) NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('In review', 'Approved')),
+    contact_name TEXT NOT NULL, contact_email TEXT NOT NULL, source TEXT NOT NULL, created_at BIGINT NOT NULL
+  )`,
+  'CREATE INDEX IF NOT EXISTS funding_requests_owner ON funding_requests(owner_id, created_at)',
 ]
 
 export function createSQLiteStore(databasePath) {
@@ -72,6 +85,7 @@ export function createPostgresStore(connectionString, driver) {
     ready,
     prepare: statement => ({
       get: async (...parameters) => (await query(statement, parameters))[0],
+      all: async (...parameters) => await query(statement, parameters),
       run: async (...parameters) => { await query(statement, parameters) },
     }),
     close: () => driver?.close?.(),
@@ -80,7 +94,7 @@ export function createPostgresStore(connectionString, driver) {
 
 export function missingDatabaseStore() {
   const unavailable = () => { throw databaseError('DATABASE_NOT_CONFIGURED') }
-  return { ready: async () => unavailable(), prepare: () => ({ get: unavailable, run: unavailable }), close() {} }
+  return { ready: async () => unavailable(), prepare: () => ({ get: unavailable, all: unavailable, run: unavailable }), close() {} }
 }
 
 // Rate limits must survive serverless cold starts and multiple function instances.

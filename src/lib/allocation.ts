@@ -4,6 +4,7 @@ export interface Organization {
   id: string; name: string; initials: string; category: Category; color: string;
   requested: number; members: number; impact: number; utilization: number;
   status: RequestStatus; description: string;
+  contactName?: string; contactEmail?: string; source?: string; createdAt?: number;
 }
 export interface Model {
   budget: number; reserve: number;

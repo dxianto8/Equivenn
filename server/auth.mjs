@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 import { resolve } from 'node:path'
 import { createSQLiteStore, createPostgresStore, missingDatabaseStore, DatabaseRateLimitStore } from './store.mjs'
 import { databaseConfiguration, databaseDiagnostics, databaseError, publicDatabaseFailure } from './database-config.mjs'
+import { registerRequestRoutes } from './requests.mjs'
 
 const scrypt = promisify(scryptCallback)
 const cookieName = 'equivenn_session'
@@ -106,9 +107,10 @@ export function createAuthApp({ databasePath = process.env.AUTH_DB_PATH || resol
       return res.status(400).json({ error: 'Check your school details. Your school email must match the school domain, and your budget must be between $1 and $100,000,000.' })
     }
     if (await school(req.account.id)) return res.json(await result(req.account))
-    await db.prepare('INSERT INTO schools (user_id, name, domain, email, role, workspace_name, budget, sample_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(req.account.id, name, domain, email, role, workspaceName, Math.round(budget * 100) / 100, sampleData ? 1 : 0)
+    await db.prepare('INSERT INTO schools (user_id, name, domain, email, role, workspace_name, budget, sample_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(req.account.id, name, domain, email, role, workspaceName, Math.round(budget * 100) / 100, 0)
     res.status(201).json(await result(req.account))
   })
+  registerRequestRoutes(app, db, requireUser)
   app.use('/api', (_req, res) => res.status(404).json({ error: 'This endpoint does not exist.' }))
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error)

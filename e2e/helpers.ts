@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 export const testPassword = 'A long test passphrase 42!'
 
-export async function onboard(page: Page, { samples = true, budget = 120000 } = {}) {
+export async function onboard(page: Page, { budget = 120000 } = {}) {
   const email = `student-${randomUUID()}@northbridge.edu`
   await page.goto('/')
   await page.getByLabel('Full name', { exact: true }).fill('Jamie Lewis')
@@ -17,7 +17,6 @@ export async function onboard(page: Page, { samples = true, budget = 120000 } = 
   await page.getByRole('button', { name: 'Connect my school', exact: true }).click()
   await page.getByLabel('Workspace name', { exact: true }).fill('Student Council')
   await page.getByLabel('Your funding pool (USD)', { exact: true }).fill(String(budget))
-  await page.getByRole('checkbox', { name: 'Show me what’s possible' }).setChecked(samples)
   await page.getByRole('button', { name: 'Open my workspace', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Big ideas. Fair opportunities.')
   return { email, password: testPassword }

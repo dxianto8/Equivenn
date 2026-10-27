@@ -31,7 +31,6 @@ test('first visit is gated; account setup resumes after reload; school details a
   await page.getByRole('button', { name: 'Connect my school', exact: true }).click()
   await page.getByLabel('Workspace name', { exact: true }).fill('Student Council')
   await page.getByLabel('Your funding pool (USD)', { exact: true }).fill('75000')
-  await page.getByRole('checkbox', { name: 'Show me what’s possible' }).uncheck()
   await page.getByRole('button', { name: 'Open my workspace', exact: true }).click()
   await expect(page.locator('.stat-value').first()).toHaveText('$75,000')
   await expect(page.locator('.workspace-switch')).toContainText('Northbridge University')
@@ -63,7 +62,7 @@ test('sign-out protects the dashboard, login returns to the school, and accounts
   await expect(page.locator('.stat-value').first()).toHaveText('$91,000')
   await signOut(page)
   await page.getByRole('button', { name: 'Create an account', exact: true }).click()
-  await onboard(page, { samples: false, budget: 12345 })
+  await onboard(page, { budget: 12345 })
   await expect(page.locator('.stat-value').first()).toHaveText('$12,345')
   await expect(page.locator('tbody tr')).toHaveCount(0)
   await signOut(page)
@@ -71,7 +70,7 @@ test('sign-out protects the dashboard, login returns to the school, and accounts
   await page.getByLabel('Password', { exact: true }).fill(first.password)
   await page.getByRole('button', { name: 'Sign in to Equivenn', exact: true }).click()
   await expect(page.locator('.stat-value').first()).toHaveText('$91,000')
-  await expect(page.locator('tbody tr')).toHaveCount(5)
+  await expect(page.locator('tbody tr')).toHaveCount(0)
 })
 
 test('onboarding works on mobile with reduced motion and no horizontal overflow', async ({ page }) => {

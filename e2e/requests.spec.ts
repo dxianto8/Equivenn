@@ -1,0 +1,67 @@
+import { expect, test } from '@playwright/test'
+import { onboard } from './helpers'
+
+test('blank admin inbox receives a public mobile submission live and keeps it after reload', async ({ page, browser, baseURL }) => {
+  await onboard(page)
+  await expect(page.locator('tbody tr')).toHaveCount(0)
+  await expect(page.locator('.stat-value').nth(1)).toHaveText('$0')
+  await expect(page.getByRole('heading', { name: 'Your inbox starts here.' })).toBeVisible()
+  await page.getByRole('button', { name: 'Share request form', exact: true }).click()
+  const link = await page.getByLabel('Your public request link').inputValue()
+  expect(link).toContain('/request?workspace=')
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click()
+  const visitor = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' })
+  try {
+    const applicant = await visitor.newPage()
+    await applicant.goto(link)
+    await expect(applicant.getByRole('heading', { name: 'Request funding', exact: true })).toBeVisible()
+    expect(await applicant.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await expect(applicant.locator('.app-shell')).toHaveCount(0)
+    await applicant.getByLabel('Your name', { exact: true }).fill('Alex Rivers')
+    await applicant.getByLabel('Contact email', { exact: true }).fill('alex@northbridge.edu')
+    await applicant.getByLabel('Organization name', { exact: true }).fill('Campus Garden Collective')
+    await applicant.getByLabel('Area of impact').selectOption('Community')
+    await applicant.getByLabel('Funding requested').fill('7500.50')
+    await applicant.getByLabel('Active members', { exact: true }).fill('80')
+    await applicant.getByLabel('Community impact score').fill('85')
+    await applicant.getByLabel('Previous funding utilization').fill('90')
+    await applicant.getByLabel('What will this funding make possible?').fill('Community garden tools, accessible workshops, and a weekly harvest program.')
+    await applicant.getByRole('button', { name: 'Send funding request', exact: true }).click()
+    await expect(applicant.getByRole('heading', { name: 'Your request is in.' })).toBeVisible()
+    await expect(applicant.getByText('Status: In review', { exact: true })).toBeVisible()
+    // The admin stays on the same document: the poll must deliver the request.
+    const requestRow = page.getByRole('row').filter({ hasText: 'Campus Garden Collective' })
+    await expect(requestRow).toContainText('In review', { timeout: 12000 })
+    await expect(page.locator('.stat-value').nth(1)).toHaveText('$0')
+    await page.getByRole('button', { name: 'View Campus Garden Collective', exact: true }).click()
+    await expect(page.getByRole('link', { name: 'alex@northbridge.edu' })).toBeVisible()
+    await page.getByRole('button', { name: 'Approve request', exact: true }).click()
+    await expect(requestRow).toContainText('Approved')
+    await expect(page.locator('.stat-value').nth(1)).toHaveText('$7,501')
+    await page.reload()
+    await expect(page.getByRole('row').filter({ hasText: 'Campus Garden Collective' })).toContainText('Approved')
+    const denied = await visitor.request.get(`${baseURL}/api/requests`)
+    expect(denied.status()).toBe(401)
+    await applicant.reload()
+    await expect(applicant.getByLabel('Organization name', { exact: true })).toHaveValue('')
+    await expect(applicant.getByRole('heading', { name: 'Request funding', exact: true })).toBeVisible()
+  } finally { await visitor.close() }
+})
+
+test('an invalid public link explains how to find the correct form', async ({ page }) => {
+  await page.goto('/request?workspace=invalid')
+  await expect(page.getByRole('heading', { name: 'We couldn’t open this form.' })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Ask your council')
+  await expect(page.locator('.app-shell')).toHaveCount(0)
+})
+
+test('a slow inbox response still loads when it takes longer than the polling interval', async ({ page }) => {
+  await page.route('**/api/requests', async route => {
+    const response = await route.fetch()
+    await new Promise(resolve => setTimeout(resolve, 6000))
+    await route.fulfill({ response })
+  })
+  await onboard(page)
+  await expect(page.getByRole('button', { name: 'Share request form', exact: true })).toBeEnabled({ timeout: 10000 })
+  await expect(page.getByRole('heading', { name: 'Your inbox starts here.' })).toBeVisible()
+})

@@ -8,7 +8,7 @@ import sharedHandler, { createVercelHandler } from '../server/vercel.mjs'
 
 async function deployedEndpoints(options) {
   const handlers = new Map()
-  for (const path of ['/health', '/session', '/school', '/auth/register', '/auth/login', '/auth/logout']) {
+  for (const path of ['/health', '/session', '/school', '/auth/register', '/auth/login', '/auth/logout', '/requests', '/request-form']) {
     // Resolve the physical entry points that Vercel deploys, including nested
     // auth paths. Calling the Express app alone missed the old routing bug.
     const endpoint = await import(`../api${path}.mjs`)

@@ -1,7 +1,19 @@
 import { expect, test } from '@playwright/test'
 import { onboard } from './helpers'
+import { randomUUID } from 'node:crypto'
+import { initialOrganizations } from '../src/lib/allocation'
 
-test.beforeEach(async ({ page }) => { await onboard(page) })
+test.beforeEach(async ({ page, baseURL }) => {
+  await onboard(page)
+  // Populate this lifecycle test explicitly; real workspaces always start empty.
+  for (const organization of initialOrganizations) {
+    const id = randomUUID()
+    const created = await page.request.post('/api/requests', { headers: { Origin: baseURL! }, data: { ...organization, id, action: 'create' } })
+    expect(created.status()).toBe(201)
+    const approved = await page.request.post('/api/requests', { headers: { Origin: baseURL! }, data: { id, action: 'approve' } })
+    expect(approved.status()).toBe(200)
+  }
+})
 
 test('review, submit, approve, recalculate, publish, persist, and export a cycle', async ({ page }) => {
   const errors: string[] = []
