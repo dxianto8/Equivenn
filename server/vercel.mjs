@@ -1,5 +1,5 @@
-import { createAuthApp } from '../server/auth.mjs'
-import { databaseConfiguration, databaseDiagnostics, publicDatabaseFailure } from '../server/database-config.mjs'
+import { createAuthApp } from './auth.mjs'
+import { databaseConfiguration, databaseDiagnostics, publicDatabaseFailure } from './database-config.mjs'
 
 export function createVercelHandler(options = {}, reportError = details => console.error('[Equivenn] Account service initialization failed', details)) {
   let service
@@ -19,6 +19,6 @@ export function createVercelHandler(options = {}, reportError = details => conso
   }
 }
 
-// Vercel routes /api/session, /api/auth/*, and /api/school to this function.
-// Accounts and sessions use durable Neon storage, never ephemeral local files.
+// Explicit files in api/ expose this shared service at every supported URL.
+// Vercel's generic function routing does not expand [...path] across slashes.
 export default createVercelHandler()

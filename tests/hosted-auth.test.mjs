@@ -4,7 +4,24 @@ import { createServer } from 'node:http'
 import { PGlite } from '@electric-sql/pglite'
 import { createPostgresStore } from '../server/store.mjs'
 import { createAuthApp } from '../server/auth.mjs'
-import { createVercelHandler } from '../api/[...path].mjs'
+import sharedHandler, { createVercelHandler } from '../server/vercel.mjs'
+
+async function deployedEndpoints(options) {
+  const handlers = new Map()
+  for (const path of ['/health', '/session', '/school', '/auth/register', '/auth/login', '/auth/logout']) {
+    // Resolve the physical entry points that Vercel deploys, including nested
+    // auth paths. Calling the Express app alone missed the old routing bug.
+    const endpoint = await import(`../api${path}.mjs`)
+    assert.equal(endpoint.default, sharedHandler)
+    handlers.set(`/api${path}`, endpoint.createVercelHandler(options))
+  }
+  return (req, res) => {
+    const handler = handlers.get(req.url?.split('?')[0])
+    if (handler) return handler(req, res)
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'This endpoint does not exist.' }))
+  }
+}
 
 async function serve(t, handler) {
   const server = createServer(handler)
@@ -19,7 +36,7 @@ async function serve(t, handler) {
 }
 
 test('Vercel function serves the anonymous session and reports a missing database without trying local disk', async t => {
-  const request = await serve(t, createVercelHandler({ databaseUrl: '' }))
+  const request = await serve(t, await deployedEndpoints({ databaseUrl: '' }))
   const session = await request('/session')
   assert.equal(session.response.status, 200)
   assert.deepEqual(session.body, { user: null, school: null })
@@ -65,11 +82,13 @@ test('PostgreSQL authentication failures return a precise safe health response',
   assert.doesNotMatch(JSON.stringify(response.body), /PRIVATE-CONNECTION-DETAILS/)
 })
 
-test('hosted signup, school setup, login, durable sessions and rate limits execute on a real PostgreSQL engine', async t => {
+test('deployed endpoint files support signup, school setup, login, durable sessions and rate limits on PostgreSQL', async t => {
   const pg = new PGlite()
   const driver = { query: async (sql, parameters) => (await pg.query(sql, parameters)).rows, initialize: async schema => { await pg.exec(schema.join(';')) } }
   const firstStore = createPostgresStore('', driver)
-  const request = await serve(t, createVercelHandler({ store: firstStore }))
+  const request = await serve(t, await deployedEndpoints({ store: firstStore }))
+  assert.deepEqual((await request('/health')).body, { status: 'ok' })
+  assert.deepEqual((await request('/session')).body, { user: null, school: null })
   const credentials = { name: 'Taylor Rivers', email: 'taylor@northbridge.edu', password: 'A long test passphrase 42!' }
   const registered = await request('/auth/register', credentials)
   assert.equal(registered.response.status, 201)
@@ -88,13 +107,13 @@ test('hosted signup, school setup, login, durable sessions and rate limits execu
   const resumed = await secondRequest('/session', undefined, registered.cookie)
   assert.equal(resumed.body.user.id, registered.body.user.id)
   assert.equal(resumed.body.school.workspaceName, 'Student Council')
-  const wrong = await secondRequest('/auth/login', { ...credentials, password: 'incorrect password' })
+  const wrong = await request('/auth/login', { ...credentials, password: 'incorrect password' })
   assert.equal(wrong.response.status, 401)
-  const login = await secondRequest('/auth/login', credentials, registered.cookie)
+  const login = await request('/auth/login', credentials, registered.cookie)
   assert.equal(login.response.status, 200)
   assert.equal(login.body.school.budget, 75000.25)
   assert.equal((await request('/session', undefined, registered.cookie)).body.user, null)
-  await secondRequest('/auth/logout', {}, login.cookie)
+  await request('/auth/logout', {}, login.cookie)
   assert.equal((await request('/session', undefined, login.cookie)).body.user, null)
   const rateKeys = (await pg.query('SELECT key, hits FROM rate_limits')).rows
   assert.ok(rateKeys.some(row => row.key.startsWith('auth:') && row.hits >= 3))

@@ -24,7 +24,7 @@ Browser tests use the system Chromium when available. Otherwise run `npx playwri
 
 ## Deploy on Vercel
 
-Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build, and `api/[...path].mjs` handles `/api/session`, `/api/auth/*`, `/api/school`, and `/api/health` as a Node.js 24 function. Deploy the repository, rather than uploading only `dist`.
+Vercel needs both the frontend and the account API. `vercel.json` configures the Vite build. Explicit Node.js 24 endpoint files expose `/api/session`, `/api/health`, `/api/school`, `/api/auth/register`, `/api/auth/login`, and `/api/auth/logout`, sharing the account service in `server/vercel.mjs`. Generic Vercel function routing treats a bracketed filename as one path segment; a file named `[...path].mjs` does not expose nested auth URLs. Deploy the repository, rather than uploading only `dist`.
 
 1. In the Equivenn Vercel project, connect a Neon Postgres database through Vercel's storage/marketplace integration. Enable the **Production** environment. The integration supplies a server-only connection variable. The app supports `DATABASE_URL`, `POSTGRES_URL`, `NEON_DATABASE_URL`, `DATABASE_POSTGRES_URL`, and an unambiguous custom-prefixed database URL. A pooled binding is preferred over its unpooled counterpart. If different databases use competing custom prefixes, set `DATABASE_URL` explicitly.
 2. Redeploy after connecting the database or changing environment variables. Existing deployments do not pick up newly added variables.
