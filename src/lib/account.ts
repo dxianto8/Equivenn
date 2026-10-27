@@ -13,7 +13,9 @@ export class AccountServiceError extends Error {
 export async function accountRequest<T>(path: string, body?: unknown): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) })
+    // A previous static deployment may have cached HTML at an API URL. Skip
+    // that cached response so the current account service always handles it.
+    response = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', cache: 'no-store', credentials: 'same-origin', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) })
   } catch { throw new AccountServiceError('Sign-in is temporarily unavailable. Please try again.', 'CONNECTION_FAILED') }
   if (!response.headers.get('content-type')?.includes('application/json')) throw new AccountServiceError('Sign-in is not available on this deployment yet. Please contact the workspace administrator.', 'API_NOT_DEPLOYED')
   let data
